@@ -1,43 +1,24 @@
-// src/App.jsx
-import React, { useState, useEffect } from 'react';
-import { SolidityflowdiamondContainer } from './components/SolidityflowdiamondContainer';
+import { useEffect, useMemo, useState } from 'react';
+import { buildDeployData, compileInput, CompilerClient, historyEntry, parseConstructorArgs, WalletClient } from './workflow.js';
 import './App.css';
 
-function App() {
-    const [loading, setLoading] = useState(true);
-    const [data, setData] = useState(null);
+const SAMPLE = `// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
-    useEffect(() => {
-        // Simulated data fetching
-        setTimeout(() => {
-            setData({
-                title: 'SolidityFlowDiamond',
-                description: 'A powerful React application'
-            });
-            setLoading(false);
-        }, 1000);
-    }, []);
+contract Greeter {
+    string public message;
+    constructor(string memory initialMessage) { message = initialMessage; }
+    function setMessage(string calldata next) external { message = next; }
+}`;
 
-    if (loading) {
-        return (
-            <div className="App loading">
-                <div className="spinner"></div>
-                <p>Loading SolidityFlowDiamond...</p>
-            </div>
-        );
-    }
-
-    return (
-        <div className="App">
-            <header className="App-header">
-                <h1>{data.title}</h1>
-                <p>{data.description}</p>
-            </header>
-            <main>
-                <SolidityflowdiamondContainer />
-            </main>
-        </div>
-    );
+export default function App() {
+  const [apiUrl, setApiUrl] = useState(() => localStorage.getItem('solidityflow:api') || 'http://localhost:3000'); const [source, setSource] = useState(SAMPLE); const [fileName, setFileName] = useState('Greeter.sol'); const [contractName, setContractName] = useState('Greeter'); const [args, setArgs] = useState('["Hello, chain!"]');
+  const [result, setResult] = useState(null); const [artifact, setArtifact] = useState(null); const [wallet, setWallet] = useState(null); const [receipt, setReceipt] = useState(null); const [verified, setVerified] = useState(false); const [status, setStatus] = useState({ kind: 'idle', text: 'Compile a contract to begin the deployment flow.' }); const [busy, setBusy] = useState(false); const [history, setHistory] = useState(() => { try { return JSON.parse(localStorage.getItem('solidityflow:history') || '[]'); } catch { return []; } });
+  const compiler = useMemo(() => { try { return new CompilerClient(apiUrl); } catch { return null; } }, [apiUrl]);
+  useEffect(() => localStorage.setItem('solidityflow:api', apiUrl), [apiUrl]); useEffect(() => localStorage.setItem('solidityflow:history', JSON.stringify(history)), [history]);
+  async function compile() { setBusy(true); setReceipt(null); setVerified(false); try { if (!compiler) throw new Error('Compiler API URL is invalid'); const compiled = await compiler.compile(compileInput({ source, fileName, contractName })); const selected = compiled.contracts.find(item => item.name === contractName) || compiled.contracts[0]; setResult(compiled); setArtifact(selected); setStatus({ kind: 'ok', text: `${selected.name} compiled with ${compiled.compiler}. Review constructor arguments, then connect a wallet.` }); } catch (error) { setStatus({ kind: 'error', text: error.message }); } finally { setBusy(false); } }
+  async function connect() { try { const client = new WalletClient(window.ethereum); const connection = await client.connect(); setWallet({ client, ...connection }); setStatus({ kind: 'ok', text: `Wallet connected on chain ${parseInt(connection.chainId, 16)}.` }); } catch (error) { setStatus({ kind: 'error', text: error.message }); } }
+  async function deploy() { setBusy(true); try { if (!artifact || !wallet) throw new Error('Compile the contract and connect a wallet first'); const constructorArgs = parseConstructorArgs(args, artifact.abi); const data = buildDeployData(artifact, constructorArgs); setStatus({ kind: 'pending', text: 'Estimating gas and waiting for wallet approval…' }); const sent = await wallet.client.deploy({ account: wallet.account, data }); setStatus({ kind: 'pending', text: `Transaction ${sent.hash} sent. Waiting for confirmation…` }); const nextReceipt = await wallet.client.waitForReceipt(sent.hash); if (nextReceipt.status && nextReceipt.status !== '0x1') throw new Error('Deployment transaction reverted'); if (!nextReceipt.contractAddress) throw new Error('Receipt did not include a contract address'); const hasCode = await wallet.client.verify(nextReceipt.contractAddress); if (!hasCode) throw new Error('No runtime bytecode found at the deployed address'); setReceipt(nextReceipt); setVerified(true); const entry = historyEntry({ result, artifact, receipt: nextReceipt, account: wallet.account, chainId: wallet.chainId }); setHistory(current => [entry, ...current].slice(0, 20)); setStatus({ kind: 'ok', text: `Deployment verified at ${nextReceipt.contractAddress}.` }); } catch (error) { setStatus({ kind: 'error', text: error.message }); } finally { setBusy(false); } }
+  const stages = [{ name: 'Compile', done: Boolean(artifact) }, { name: 'Connect', done: Boolean(wallet) }, { name: 'Deploy', done: Boolean(receipt) }, { name: 'Verify', done: verified }];
+  return <div className="app"><header><div><span className="mark">◇</span><b>Solidity Flow</b><small>DIAMOND DEPLOYMENT RUNBOOK</small></div><div className="wallet">{wallet ? `${wallet.account.slice(0,6)}…${wallet.account.slice(-4)} · chain ${parseInt(wallet.chainId,16)}` : 'Wallet disconnected'}</div></header><main><section className="intro"><div><p className="eyebrow">COMPILE → REVIEW → DEPLOY → VERIFY</p><h1>Ship contracts with<br/><em>every step visible.</em></h1><p>Source compilation, constructor encoding, wallet approval, receipt tracking, and bytecode verification in one local-first runbook.</p></div><div className="steps">{stages.map((stage,index)=><div className={stage.done?'done':''} key={stage.name}><span>{stage.done?'✓':index+1}</span>{stage.name}</div>)}</div></section><section className="config"><label>Compiler API<input value={apiUrl} onChange={event=>setApiUrl(event.target.value)}/></label><button onClick={connect}>{wallet?'Reconnect wallet':'Connect wallet'}</button></section><div className="grid"><section className="card source"><div className="title"><span>01</span><h2>Contract source</h2></div><div className="fields"><label>Filename<input value={fileName} onChange={event=>setFileName(event.target.value)}/></label><label>Contract<input value={contractName} onChange={event=>setContractName(event.target.value)}/></label></div><textarea value={source} onChange={event=>setSource(event.target.value)} spellCheck="false"/><button className="primary" onClick={compile} disabled={busy}>{busy?'Working…':'Compile contract'}</button></section><section className="card deploy"><div className="title"><span>02</span><h2>Deployment</h2></div>{artifact?<><div className="artifact"><b>{artifact.name}</b><span>{Math.max(0,(artifact.bytecode.length-2)/2).toLocaleString()} creation bytes</span><span>{artifact.abi.length} ABI entries</span></div><label>Constructor arguments · JSON array<textarea className="args" value={args} onChange={event=>setArgs(event.target.value)} spellCheck="false"/></label><button className="primary deploy-button" onClick={deploy} disabled={busy||!wallet}>{wallet?'Deploy with wallet':'Connect wallet to deploy'}</button></>:<div className="empty">A compiled artifact will appear here.</div>}{receipt&&<div className="receipt"><b>VERIFIED DEPLOYMENT</b><code>{receipt.contractAddress}</code><span>Transaction {receipt.transactionHash}</span><span>Block {parseInt(receipt.blockNumber,16)}</span></div>}</section></div><section className={`status ${status.kind}`}><i/>{status.text}</section><section className="history"><div className="title"><span>03</span><h2>Local deployment history</h2><small>{history.length} runs</small></div>{history.length===0?<p>No verified deployments yet.</p>:history.map(item=><article key={item.transactionHash}><b>{item.contractName}</b><code>{item.contractAddress}</code><span>chain {parseInt(item.chainId,16)} · block {parseInt(item.blockNumber,16)}</span></article>)}</section></main></div>;
 }
-
-export default App;
