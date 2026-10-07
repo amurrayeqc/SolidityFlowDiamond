@@ -1,5 +1,7 @@
 # SolidityFlowDiamond
 
+[![CI](https://github.com/centxyz/SolidityFlowDiamond/actions/workflows/ci.yml/badge.svg)](https://github.com/centxyz/SolidityFlowDiamond/actions/workflows/ci.yml)
+
 SolidityFlowDiamond is a browser deployment runbook for Solidity contracts. It compiles source through [SolidityStackDiamond](https://github.com/centxyz/SolidityStackDiamond), encodes typed constructor arguments, connects to an injected EIP-1193 wallet, estimates gas, requests deployment, waits for the transaction receipt, and verifies runtime bytecode at the resulting address.
 
 Private keys never enter the application. The connected wallet performs approval and signing. Verified deployments are stored only in browser local storage.
