@@ -45,3 +45,9 @@ Tests cover validation, dynamic constructor encoding, compiler integration, wall
 ## License
 
 MIT © cent
+
+## Current limitations
+
+- Deployment requires a compatible compiler service, an injected wallet, a funded account, and a suitable EVM network.
+- Runtime bytecode presence is a basic verification check, not source-code verification or a security audit.
+- Gas estimates, wallet prompts, and receipts depend on the connected provider and live chain state.
